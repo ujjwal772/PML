@@ -1,0 +1,72 @@
+---
+title: 'Practical Machine Learning: Course Project'
+author: "Ujjwal Kumar"
+output: html_document
+---
+
+#Overview  
+This document is prepared as a required submission for course project in "Practical Machine Learning". It describes the method in which a multiclass classifier was developed and trained to identify exercise type using data from wearble devices.
+
+#Problem Statement  
+Data collected from wearable devices was classified into different exercise groups or classes. In our problem, there are 5 such classes, A,B,C,D and E. A training dataset is provided, based on which 20 predictions have to be done as course submission.
+
+#Methodology
+##1. Data loading and preparation  
+First we load up both the labelled and problem datasets and just take an overview of the dataset.
+```{r,cache=TRUE}
+d <- read.csv("pml-training.csv")
+eval <- read.csv("pml-testing.csv")
+dim(d)
+dim(eval)
+```
+On just looking through the data, it was found that the problem dataset (eval) has many columns which have all NA values. Since the problem is to predict these 20 cases only, there's no need to keep those features in the model which cannot contribute to the prediction problem. Hence, all NA columns were dropped only the valuable columns were kept.
+```{r,cache=TRUE}
+eval <- eval[,colSums(is.na(eval))<nrow(eval)] # dropping NA columns
+# columns reduce from 160 to 60.
+
+colsEval <- colnames(eval)
+colsTrain <- colnames(d)
+cols <- intersect(colsEval,colsTrain)
+# Adding class variable to the list
+cols <- c(cols,"classe")
+#removing unwanted columns from trainset
+d <- d[,cols]
+```
+It is evident now that our problem is more simple now as the number of columns have reduced from 160 to 60. Also since many of them were categorical variables, it actual variable count going into the model are lot reduced now. But still we have identifier variables which we cannot keep in the model because we cannot base our model on anything other than variable that capture different aspects of body movemment. So, these variables are dropped from the training dataset.
+```{r,cache=TRUE}
+# dropping columns further
+d$X=NULL
+d$user_name=NULL
+d$raw_timestamp_part_1=NULL
+d$raw_timestamp_part_2=NULL
+d$cvtd_timestamp=NULL
+```
+The date variables are also dropped because these columns, too dont provide information about motion. Now we have 54 predictor variables in our training dataset, out of which only one is categorical in nature. Before proceeding to modeling, we subset our data into training and testing sets:
+```{r,cache=TRUE}
+library(caret)
+trainIds <- createDataPartition(d$classe,p=0.7,list=FALSE)
+trainset <- d[trainIds,]
+testset <- d[-trainIds,]
+```
+
+##2. Modeling
+We have many options for chosing he modeling algorithm. The simplest would be additive models, which assume that the variables are independent of each other. Of course we cannot assume that this holds for our problem, because a given value of x may mean different things depending on value of say, y and z values. Thus, linear additive models are directly ruled out. The method to be used must capture the interaction between the variables, which leaves us with tree based models as one of the obvious choice. On training a tree model:
+```{r,cache=TRUE}
+m1 <- train(classe ~.,data=trainset,method="rpart")
+m1$results
+```
+The accuracy suggests that a single tree is not sufficient to capture 5 different outputs from 54 predictors. Therefore it is useful to selected ensemble methods like bagging and boosting. One of the well performing methods from caret package is gradient boosted models, which perform better by boosting performance by iterating on tree based models. The hyperparameters associated with a gradient boosted method are: number of trees, interaction depths and shrinkage parameter. The caret package makes it very easy by automatically searching for best hyperparameters. The options **verbose=FALSE** is provide to supress the output during all the training iterations.
+```{r,cache=TRUE}
+m2 <- train(classe ~.,data=trainset,method="gbm",verbose=FALSE)
+m2$results
+```
+We see that as the iterations go along, the algorithms settles down to the best parameter values and the model accuracy increases. We also perform a out of sample validation using the subsetted testing data. But an accuracy this high may be result of over-fitting the training data, hence we perform an out of sample accuracy check.
+```{r,cache=TRUE}
+testpred <- predict(object=m2,newdata=testset)
+# Calculate accuracy
+mean(testpred==testset$classe)
+```
+Thus we see that the model is not overtrained and it performs equally well on unseen data. Thus the out of sample error value can be estimated to be `r 100*(1-mean(testpred==testset$classe))`%. Now it is certain that the model is perrforming well, we can apply it on problem dataset.
+```{r,cache=TRUE}
+predict(object = m2, newdata=eval)
+```
